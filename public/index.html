@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VM Creator Control Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20260303b" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <main class="container">
+    <section class="card hero">
+      <div class="hero-top">
+        <p class="eyebrow">Azure VM Automation</p>
+        <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle color theme">Dark Mode</button>
+      </div>
+      <h1>NMS Infrastructure Control Panel</h1>
+      <p class="subtitle">Enter project details, calculate VM requirement, then trigger Terraform directly from this dashboard.</p>
+    </section>
+
+    <section class="grid">
+      <article class="card form-card">
+        <h2>Project Input</h2>
+        <form id="planForm">
+          <label>
+            Project Name
+            <input id="projectName" name="projectName" placeholder="west-bengal" required />
+          </label>
+
+          <label>
+            Camera Count
+            <input id="cameraCount" name="cameraCount" type="number" min="1" step="1" placeholder="75000" required />
+          </label>
+
+          <label>
+            Cameras Per VM
+            <input id="camerasPerVm" name="camerasPerVm" type="number" min="1" step="1" value="500" required />
+          </label>
+
+          <div class="actions">
+            <button type="button" id="calculateBtn" class="btn btn-secondary">Calculate</button>
+            <button type="button" id="setConfigBtn" class="btn btn-config">Set Config</button>
+            <button type="button" id="createBtn" class="btn btn-primary">Create VMs</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card output-card">
+        <h2>Provisioning Plan</h2>
+        <div id="summary" class="summary muted">No plan calculated yet.</div>
+        <div class="vm-list-wrap">
+          <h3>VM Names</h3>
+          <div id="vmList" class="vm-list muted">Calculate to preview VM names.</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="card logs-card">
+      <div class="logs-header">
+        <h2>Execution Logs</h2>
+        <span id="jobStatus" class="status status-idle">Idle</span>
+      </div>
+      <pre id="logs" class="logs">No running job.</pre>
+    </section>
+  </main>
+
+  <script src="/app.js?v=20260303b" defer></script>
+</body>
+</html>

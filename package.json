@@ -1,0 +1,13 @@
+{
+  "name": "vm-creator-control-panel",
+  "version": "1.0.0",
+  "description": "Web control panel for Terraform-based VM provisioning and NMS installation",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
