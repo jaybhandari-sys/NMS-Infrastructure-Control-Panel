@@ -123,12 +123,6 @@ function toHclList(values) {
   return `[${values.map((v) => toHclString(v)).join(', ')}]`;
 }
 
-function findTfvarsValue(content, key) {
-  const pattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=\\s*(.+)$`, 'm');
-  const match = content.match(pattern);
-  return match ? match[1].trim() : null;
-}
-
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -194,12 +188,6 @@ async function writeManagedTfvars(plan, resourceGroupName) {
   return { path: targetPath, content };
 }
 
-function extractLocationFromTfvars(content) {
-  const raw = findTfvarsValue(content, 'location');
-  if (!raw) return '';
-  return raw.replace(/^['"]|['"]$/g, '').trim();
-}
-
 function runCommandCapture(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -229,22 +217,11 @@ function runCommandCapture(cmd, args, options = {}) {
 }
 
 async function listAzureVmSizes(locationQuery, searchQuery) {
-  if (!fs.existsSync(CONFIG.terraformStaticTfvars)) {
-    throw new Error(`Static tfvars file not found: ${CONFIG.terraformStaticTfvars}`);
-  }
-
-  const tfvarsContent = await fsp.readFile(CONFIG.terraformStaticTfvars, 'utf-8');
-  const tfvarsLocation = extractLocationFromTfvars(tfvarsContent);
-  const location = String(locationQuery || tfvarsLocation || '').trim();
-  if (!location) {
-    throw new Error('Location not found. Add location in terraform.tfvars or pass ?location=');
-  }
-
   if (CONFIG.requireAzureLogin) {
     await runCommandCapture('az', ['account', 'show']);
   }
 
-  const args = ['vm', 'list-sizes', '--location', location, '-o', 'json'];
+  const args = ['vm', 'list-skus', '--resource-type', 'virtualMachines', '--all', '-o', 'json'];
   const result = await runCommandCapture('az', args);
   let raw = [];
   try {
@@ -253,24 +230,30 @@ async function listAzureVmSizes(locationQuery, searchQuery) {
     throw new Error('Failed to parse Azure VM size response.');
   }
 
-  const sizes = raw
-    .filter((item) => item && item.name)
-    .map((item) => {
-      const vcpus = Number(item.numberOfCores || 0);
-      const memoryGb = Number(item.memoryInMb || 0) / 1024;
-      return {
+  const sizeMap = new Map();
+  for (const item of raw) {
+    if (!item || !item.name || item.resourceType !== 'virtualMachines') continue;
+    const capabilities = Array.isArray(item.capabilities) ? item.capabilities : [];
+    const vcpuCap = capabilities.find((c) => c && c.name === 'vCPUs');
+    const memCap = capabilities.find((c) => c && c.name === 'MemoryGB');
+    const vcpus = Number(vcpuCap?.value || 0);
+    const memoryGb = Number(memCap?.value || 0);
+    if (!sizeMap.has(item.name)) {
+      sizeMap.set(item.name, {
         name: item.name,
         vcpus,
         memoryGb
-      };
-    });
+      });
+    }
+  }
+  const sizes = Array.from(sizeMap.values());
 
   const search = String(searchQuery || '').trim().toLowerCase();
   const filtered = sizes
     .filter((s) => (search ? s.name.toLowerCase().includes(search) : true))
     .sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
 
-  return { location, sizes: filtered };
+  return { location: String(locationQuery || 'all').trim() || 'all', sizes: filtered };
 }
 
 function createJob(type, plan) {
