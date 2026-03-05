@@ -32,6 +32,7 @@ const NODE_ENV = process.env.NODE_ENV || 'production';
 const INFRA_ROOT = path.resolve(process.env.INFRA_ROOT || '.');
 const DEFAULT_STATIC_TFVARS = '/home/sanket/ele-infra/terraform/terraform.tfvars';
 const RESOLVED_STATIC_TFVARS = path.resolve(process.env.TERRAFORM_STATIC_TFVARS || DEFAULT_STATIC_TFVARS);
+const VM_SIZES_CACHE_PATH = path.resolve('./.runtime/azure-vm-sizes-cache.json');
 
 const CONFIG = {
   camerasPerVm: Number(process.env.CAMERAS_PER_VM || 500),
@@ -45,14 +46,7 @@ const CONFIG = {
   tfCameraCountVar: process.env.TF_CAMERA_COUNT_VAR || 'camera_count',
   tfVmCountVar: process.env.TF_VM_COUNT_VAR || 'vm_count',
   tfVmNamesVar: process.env.TF_VM_NAMES_VAR || 'vm_names',
-  requireAzureLogin: String(process.env.REQUIRE_AZ_LOGIN || 'true') === 'true',
-  vmSizeOptions: String(
-    process.env.VM_SIZE_OPTIONS ||
-      'Standard_B2s,Standard_B4ms,Standard_D2s_v5,Standard_D4s_v5,Standard_D8s_v5,Standard_D16s_v5'
-  )
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean)
+  requireAzureLogin: String(process.env.REQUIRE_AZ_LOGIN || 'true') === 'true'
 };
 
 const PUBLIC_DIR = path.resolve('./public');
@@ -224,13 +218,55 @@ function runCommandCapture(cmd, args, options = {}) {
 }
 
 async function listAzureVmSizes(locationQuery, searchQuery) {
-  const sizes = CONFIG.vmSizeOptions.map((name) => ({ name, vcpus: 0, memoryGb: 0 }));
+  let sizes = [];
+  let source = 'azure';
+  try {
+    if (CONFIG.requireAzureLogin) {
+      await runCommandCapture('az', ['account', 'show']);
+    }
+    const result = await runCommandCapture('az', [
+      'vm',
+      'list-skus',
+      '--resource-type',
+      'virtualMachines',
+      '--all',
+      '-o',
+      'json'
+    ]);
+    const raw = JSON.parse(result.stdout);
+    const map = new Map();
+    for (const item of raw) {
+      if (!item || item.resourceType !== 'virtualMachines' || !item.name) continue;
+      const caps = Array.isArray(item.capabilities) ? item.capabilities : [];
+      const vcpus = Number((caps.find((c) => c && c.name === 'vCPUs') || {}).value || 0);
+      const memoryGb = Number((caps.find((c) => c && c.name === 'MemoryGB') || {}).value || 0);
+      if (!map.has(item.name)) {
+        map.set(item.name, { name: item.name, vcpus, memoryGb });
+      }
+    }
+    sizes = Array.from(map.values());
+    await fsp.mkdir(path.dirname(VM_SIZES_CACHE_PATH), { recursive: true });
+    await fsp.writeFile(VM_SIZES_CACHE_PATH, JSON.stringify(sizes), 'utf-8');
+  } catch {
+    source = 'cache';
+    if (fs.existsSync(VM_SIZES_CACHE_PATH)) {
+      const cached = await fsp.readFile(VM_SIZES_CACHE_PATH, 'utf-8');
+      sizes = JSON.parse(cached);
+    } else {
+      throw new Error("Azure VM sizes unavailable. Run 'az login' once on this server.");
+    }
+  }
+
   const search = String(searchQuery || '').trim().toLowerCase();
   const filtered = sizes
     .filter((s) => (search ? s.name.toLowerCase().includes(search) : true))
     .sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
 
-  return { location: String(locationQuery || 'configured').trim() || 'configured', sizes: filtered };
+  return {
+    location: String(locationQuery || 'all').trim() || 'all',
+    source,
+    sizes: filtered
+  };
 }
 
 function createJob(type, plan) {

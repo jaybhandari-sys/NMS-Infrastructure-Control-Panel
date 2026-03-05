@@ -84,7 +84,7 @@ async function loadVmSizes() {
     const data = await callApi('/api/vm-sizes', 'GET');
     vmSizes = Array.isArray(data.sizes) ? data.sizes : [];
     filterVmSizes();
-    logsEl.textContent = `VM sizes loaded for location: ${data.location}\nAvailable sizes: ${vmSizes.length}`;
+    logsEl.textContent = `VM sizes loaded (${data.source || 'azure'})\nLocation scope: ${data.location}\nAvailable sizes: ${vmSizes.length}`;
     setStatus('Idle', 'status-idle');
   } catch (err) {
     logsEl.textContent = `Failed to load VM sizes: ${err.message}`;
