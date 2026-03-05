@@ -140,18 +140,27 @@ function replaceTfvarsKey(content, key, value) {
   return { content, replaced: false };
 }
 
+function removeTfvarsKey(content, key) {
+  const lines = content.split(/\r?\n/);
+  const keyPattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
+  return lines.filter((line) => !keyPattern.test(line)).join('\n');
+}
+
 function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
   let content = existingContent || '';
   if (!content.trim()) {
     throw new Error('Static tfvars file is empty. Refusing to add/remove variables automatically.');
   }
 
+  // Cleanup from older app versions that wrote undeclared key `project`.
+  content = removeTfvarsKey(content, 'project');
+
   const resolvedResourceGroup = resourceGroupName ? toHclString(resourceGroupName) : null;
   const requiredUpdates = [
     { key: 'resource_group_name', value: resolvedResourceGroup },
     { key: 'project_name', value: toHclString(plan.projectName) },
     { key: 'vm_count', value: String(plan.vmCount) },
-    { key: 'vm_name', value: toHclList(plan.vmNames) }
+    { key: 'vm_name', value: toHclString(plan.vmNames[0] || plan.projectName) }
   ].filter((item) => item.value !== null);
 
   for (const update of requiredUpdates) {
