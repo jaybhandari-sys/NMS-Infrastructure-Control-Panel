@@ -41,7 +41,7 @@ const CONFIG = {
     process.env.TERRAFORM_STATIC_TFVARS || path.join(INFRA_ROOT, 'terraform', 'terraform.tfvars')
   ),
   terraformWebTfvars: path.resolve(
-    process.env.TERRAFORM_WEB_TFVARS || path.join(INFRA_ROOT, 'terraform', 'web.auto.tfvars')
+    process.env.TERRAFORM_WEB_TFVARS || path.join(INFRA_ROOT, 'terraform', 'terraform.tfvars')
   ),
   useStaticTfvars: String(process.env.USE_STATIC_TFVARS || 'true') === 'true',
   tfProjectVar: process.env.TF_PROJECT_VAR || 'project_name',
@@ -126,13 +126,23 @@ function toHclList(values) {
   return `[${values.map((v) => toHclString(v)).join(', ')}]`;
 }
 
-function buildWebTfvars(plan) {
+function findTfvarsValue(content, key) {
+  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm');
+  const match = content.match(pattern);
+  return match ? match[1].trim() : null;
+}
+
+function buildWebTfvars(plan, existingContent = '') {
+  const subscriptionId = findTfvarsValue(existingContent, 'subscription_id') || toHclString('');
+  const resourceGroupName = findTfvarsValue(existingContent, 'resource_group_name') || toHclString('');
+  const location = findTfvarsValue(existingContent, 'location') || toHclString('');
+
   return [
     `# Managed by VM Creator UI at ${new Date().toISOString()}`,
-    `${CONFIG.tfProjectVar} = ${toHclString(plan.projectName)}`,
-    `${CONFIG.tfCameraCountVar} = ${plan.cameraCount}`,
-    `${CONFIG.tfVmCountVar} = ${plan.vmCount}`,
-    `${CONFIG.tfVmNamesVar} = ${toHclList(plan.vmNames)}`,
+    `subscription_id = ${subscriptionId}`,
+    `resource_group_name = ${resourceGroupName}`,
+    `location = ${location}`,
+    `vm_name = ${toHclList(plan.vmNames)}`,
     ''
   ].join('\n');
 }
@@ -140,7 +150,11 @@ function buildWebTfvars(plan) {
 async function writeWebTfvars(plan) {
   const parentDir = path.dirname(CONFIG.terraformWebTfvars);
   await fsp.mkdir(parentDir, { recursive: true });
-  const content = buildWebTfvars(plan);
+  let existingContent = '';
+  if (fs.existsSync(CONFIG.terraformWebTfvars)) {
+    existingContent = await fsp.readFile(CONFIG.terraformWebTfvars, 'utf-8');
+  }
+  const content = buildWebTfvars(plan, existingContent);
   await fsp.writeFile(CONFIG.terraformWebTfvars, content, 'utf-8');
   return content;
 }
@@ -238,13 +252,19 @@ async function executeTerraform(job, plan) {
     '-auto-approve',
     '-input=false'
   ];
+  const varFiles = [];
   if (CONFIG.useStaticTfvars && fs.existsSync(CONFIG.terraformStaticTfvars)) {
-    applyArgs.push(`-var-file=${CONFIG.terraformStaticTfvars}`);
-    appendJobLog(job, `Using static tfvars: ${CONFIG.terraformStaticTfvars}`);
+    varFiles.push({ type: 'static', path: CONFIG.terraformStaticTfvars });
   }
   if (fs.existsSync(CONFIG.terraformWebTfvars)) {
-    applyArgs.push(`-var-file=${CONFIG.terraformWebTfvars}`);
-    appendJobLog(job, `Using web tfvars: ${CONFIG.terraformWebTfvars}`);
+    varFiles.push({ type: 'web', path: CONFIG.terraformWebTfvars });
+  }
+  const seen = new Set();
+  for (const item of varFiles) {
+    if (seen.has(item.path)) continue;
+    seen.add(item.path);
+    applyArgs.push(`-var-file=${item.path}`);
+    appendJobLog(job, `Using ${item.type} tfvars: ${item.path}`);
   }
   await runCommand(job, CONFIG.terraformBin, applyArgs);
 }
