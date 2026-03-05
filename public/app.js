@@ -3,6 +3,10 @@ const projectNameEl = document.getElementById('projectName');
 const resourceGroupNameEl = document.getElementById('resourceGroupName');
 const cameraCountEl = document.getElementById('cameraCount');
 const camerasPerVmEl = document.getElementById('camerasPerVm');
+const vmSizeEl = document.getElementById('vmSize');
+const vmSizeSearchEl = document.getElementById('vmSizeSearch');
+const vmSizeMinCoresEl = document.getElementById('vmSizeMinCores');
+const refreshVmSizesBtn = document.getElementById('refreshVmSizesBtn');
 const themeToggleEl = document.getElementById('themeToggle');
 
 const calculateBtn = document.getElementById('calculateBtn');
@@ -16,6 +20,7 @@ const jobStatusEl = document.getElementById('jobStatus');
 
 let currentPlan = null;
 let pollTimer = null;
+let vmSizes = [];
 
 function setStatus(label, cls) {
   jobStatusEl.textContent = label;
@@ -26,6 +31,7 @@ function setButtonsDisabled(disabled) {
   calculateBtn.disabled = disabled;
   setConfigBtn.disabled = disabled;
   createBtn.disabled = disabled;
+  refreshVmSizesBtn.disabled = disabled;
 }
 
 function getInitialTheme() {
@@ -45,9 +51,52 @@ function formPayload() {
   return {
     projectName: projectNameEl.value.trim(),
     resourceGroupName: resourceGroupNameEl.value.trim(),
+    vmSize: vmSizeEl.value.trim(),
     cameraCount: Number(cameraCountEl.value),
     camerasPerVm: Number(camerasPerVmEl.value)
   };
+}
+
+function renderVmSizeOptions(items) {
+  const selected = vmSizeEl.value;
+  vmSizeEl.innerHTML = '<option value="">Select VM size</option>';
+  for (const item of items) {
+    const option = document.createElement('option');
+    option.value = item.name;
+    option.textContent = `${item.name} (${item.vcpus || 0} vCPU, ${item.memoryGb || 0} GB)`;
+    vmSizeEl.appendChild(option);
+  }
+  if (selected && items.some((item) => item.name === selected)) {
+    vmSizeEl.value = selected;
+  }
+}
+
+function filterVmSizes() {
+  const search = vmSizeSearchEl.value.trim().toLowerCase();
+  const minCores = Number(vmSizeMinCoresEl.value || 0);
+  const filtered = vmSizes.filter((item) => {
+    if (search && !item.name.toLowerCase().includes(search)) return false;
+    if (Number.isFinite(minCores) && minCores > 0 && Number(item.vcpus || 0) < minCores) return false;
+    return true;
+  });
+  renderVmSizeOptions(filtered);
+}
+
+async function loadVmSizes() {
+  setButtonsDisabled(true);
+  try {
+    setStatus('Running', 'status-running');
+    const data = await callApi('/api/vm-sizes', 'GET');
+    vmSizes = Array.isArray(data.sizes) ? data.sizes : [];
+    filterVmSizes();
+    logsEl.textContent = `VM sizes loaded for location: ${data.location}\nAvailable sizes: ${vmSizes.length}`;
+    setStatus('Idle', 'status-idle');
+  } catch (err) {
+    logsEl.textContent = `Failed to load VM sizes: ${err.message}`;
+    setStatus('Failed', 'status-failed');
+  } finally {
+    setButtonsDisabled(false);
+  }
 }
 
 function renderPlan(plan) {
@@ -162,6 +211,9 @@ calculateBtn.addEventListener('click', async () => {
 
 createBtn.addEventListener('click', () => runJob('/api/create'));
 setConfigBtn.addEventListener('click', setConfig);
+refreshVmSizesBtn.addEventListener('click', loadVmSizes);
+vmSizeSearchEl.addEventListener('input', filterVmSizes);
+vmSizeMinCoresEl.addEventListener('input', filterVmSizes);
 
 themeToggleEl.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -180,6 +232,7 @@ planForm.addEventListener('submit', (e) => {
   try {
     const health = await callApi('/api/health', 'GET');
     camerasPerVmEl.value = String(health.config.camerasPerVm || 500);
+    await loadVmSizes();
   } catch {
     camerasPerVmEl.value = '500';
   }

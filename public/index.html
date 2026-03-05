@@ -47,6 +47,25 @@
             <input id="camerasPerVm" name="camerasPerVm" type="number" min="1" step="1" value="500" required />
           </label>
 
+          <label>
+            VM Size
+            <select id="vmSize" name="vmSize" required>
+              <option value="">Select VM size</option>
+            </select>
+          </label>
+
+          <div class="vm-size-tools">
+            <label>
+              Search VM Size
+              <input id="vmSizeSearch" name="vmSizeSearch" placeholder="Standard_D" />
+            </label>
+            <label>
+              Min vCPUs
+              <input id="vmSizeMinCores" name="vmSizeMinCores" type="number" min="0" step="1" placeholder="4" />
+            </label>
+            <button type="button" id="refreshVmSizesBtn" class="btn btn-secondary">Refresh Sizes</button>
+          </div>
+
           <div class="actions">
             <button type="button" id="calculateBtn" class="btn btn-secondary">Calculate</button>
             <button type="button" id="setConfigBtn" class="btn btn-config">Set Config</button>

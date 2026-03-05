@@ -123,6 +123,12 @@ function toHclList(values) {
   return `[${values.map((v) => toHclString(v)).join(', ')}]`;
 }
 
+function findTfvarsValue(content, key) {
+  const pattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=\\s*(.+)$`, 'm');
+  const match = content.match(pattern);
+  return match ? match[1].trim() : null;
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -156,11 +162,13 @@ function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
   content = removeTfvarsKey(content, 'project');
 
   const resolvedResourceGroup = resourceGroupName ? toHclString(resourceGroupName) : null;
+  const vmSize = String(plan.vmSize || '').trim();
   const requiredUpdates = [
     { key: 'resource_group_name', value: resolvedResourceGroup },
     { key: 'project_name', value: toHclString(plan.projectName) },
     { key: 'vm_count', value: String(plan.vmCount) },
-    { key: 'vm_name', value: toHclString(plan.projectName) }
+    { key: 'vm_name', value: toHclString(plan.projectName) },
+    { key: 'vm_size', value: vmSize ? toHclString(vmSize) : null }
   ].filter((item) => item.value !== null);
 
   for (const update of requiredUpdates) {
@@ -184,6 +192,96 @@ async function writeManagedTfvars(plan, resourceGroupName) {
   const content = buildManagedTfvars(plan, resourceGroupName, existingContent);
   await fsp.writeFile(targetPath, content, 'utf-8');
   return { path: targetPath, content };
+}
+
+function extractLocationFromTfvars(content) {
+  const raw = findTfvarsValue(content, 'location');
+  if (!raw) return '';
+  return raw.replace(/^['"]|['"]$/g, '').trim();
+}
+
+function getCapability(sku, name) {
+  const capabilities = Array.isArray(sku.capabilities) ? sku.capabilities : [];
+  const item = capabilities.find((c) => c && c.name === name);
+  return item ? item.value : null;
+}
+
+function runCommandCapture(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd: options.cwd,
+      env: { ...process.env, ...(options.env || {}) },
+      shell: false
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => {
+      stdout += d.toString('utf-8');
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d.toString('utf-8');
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error((stderr || `Command exited with code ${code}`).trim()));
+      }
+    });
+  });
+}
+
+async function listAzureVmSizes(locationQuery, searchQuery, minCoresQuery) {
+  if (!fs.existsSync(CONFIG.terraformStaticTfvars)) {
+    throw new Error(`Static tfvars file not found: ${CONFIG.terraformStaticTfvars}`);
+  }
+
+  const tfvarsContent = await fsp.readFile(CONFIG.terraformStaticTfvars, 'utf-8');
+  const tfvarsLocation = extractLocationFromTfvars(tfvarsContent);
+  const location = String(locationQuery || tfvarsLocation || '').trim();
+  if (!location) {
+    throw new Error('Location not found. Add location in terraform.tfvars or pass ?location=');
+  }
+
+  if (CONFIG.requireAzureLogin) {
+    await runCommandCapture('az', ['account', 'show']);
+  }
+
+  const args = ['vm', 'list-skus', '--location', location, '--resource-type', 'virtualMachines', '--all', '-o', 'json'];
+  const result = await runCommandCapture('az', args);
+  let raw = [];
+  try {
+    raw = JSON.parse(result.stdout);
+  } catch {
+    throw new Error('Failed to parse Azure VM size response.');
+  }
+
+  const sizes = raw
+    .filter((item) => item && item.resourceType === 'virtualMachines' && item.name)
+    .map((item) => {
+      const vcpus = Number(getCapability(item, 'vCPUs') || 0);
+      const memoryGb = Number(getCapability(item, 'MemoryGB') || 0);
+      return {
+        name: item.name,
+        size: item.size || item.name,
+        family: item.family || '',
+        tier: item.tier || '',
+        vcpus,
+        memoryGb
+      };
+    });
+
+  const minCores = Number(minCoresQuery || 0);
+  const search = String(searchQuery || '').trim().toLowerCase();
+  const filtered = sizes
+    .filter((s) => (Number.isFinite(minCores) && minCores > 0 ? s.vcpus >= minCores : true))
+    .filter((s) => (search ? s.name.toLowerCase().includes(search) : true))
+    .sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
+
+  return { location, sizes: filtered };
 }
 
 function createJob(type, plan) {
@@ -367,6 +465,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/set-config') {
       const body = await parseBody(req);
       const plan = computePlan(body.projectName, body.cameraCount, body.camerasPerVm);
+      plan.vmSize = String(body.vmSize || '').trim();
+      if (!plan.vmSize) {
+        throw new Error('VM size is required.');
+      }
       const resourceGroupName = String(body.resourceGroupName || '').trim();
       const saved = await writeManagedTfvars(plan, resourceGroupName);
       sendJson(res, 200, {
@@ -375,6 +477,15 @@ const server = http.createServer(async (req, res) => {
         tfvarsPath: saved.path,
         plan
       });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/vm-sizes') {
+      const location = parsed.searchParams.get('location') || '';
+      const search = parsed.searchParams.get('search') || '';
+      const minCores = parsed.searchParams.get('minCores') || '';
+      const data = await listAzureVmSizes(location, search, minCores);
+      sendJson(res, 200, { ok: true, ...data });
       return;
     }
 
