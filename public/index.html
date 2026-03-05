@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260303b" />
+  <link rel="stylesheet" href="/styles.css?v=20260305a" />
 </head>
 <body>
   <div class="bg-shape bg-shape-a"></div>
@@ -48,9 +48,15 @@
           </label>
 
           <label>
-            VM Size (Search)
-            <input id="vmSize" name="vmSize" list="vmSizeList" placeholder="Standard_D2s_v5" required />
-            <datalist id="vmSizeList"></datalist>
+            VM Size
+            <select id="vmSize" name="vmSize" required>
+              <option value="">Select VM size</option>
+            </select>
+          </label>
+
+          <label>
+            Search VM Size
+            <input id="vmSizeSearch" name="vmSizeSearch" placeholder="Type to filter dropdown (e.g. Standard_D)" />
           </label>
 
           <div class="actions">
@@ -80,6 +86,6 @@
     </section>
   </main>
 
-  <script src="/app.js?v=20260303b" defer></script>
+  <script src="/app.js?v=20260305a" defer></script>
 </body>
 </html>

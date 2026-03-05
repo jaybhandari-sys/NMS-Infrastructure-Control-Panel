@@ -4,7 +4,7 @@ const resourceGroupNameEl = document.getElementById('resourceGroupName');
 const cameraCountEl = document.getElementById('cameraCount');
 const camerasPerVmEl = document.getElementById('camerasPerVm');
 const vmSizeEl = document.getElementById('vmSize');
-const vmSizeListEl = document.getElementById('vmSizeList');
+const vmSizeSearchEl = document.getElementById('vmSizeSearch');
 const themeToggleEl = document.getElementById('themeToggle');
 
 const calculateBtn = document.getElementById('calculateBtn');
@@ -56,18 +56,20 @@ function formPayload() {
 
 function renderVmSizeOptions(items) {
   const selected = vmSizeEl.value;
-  vmSizeListEl.innerHTML = '';
+  vmSizeEl.innerHTML = '<option value="">Select VM size</option>';
   for (const item of items) {
     const option = document.createElement('option');
     option.value = item.name;
-    option.label = `${item.name} (${item.vcpus || 0} vCPU, ${(item.memoryGb || 0).toFixed(1)} GB)`;
-    vmSizeListEl.appendChild(option);
+    option.textContent = `${item.name} (${item.vcpus || 0} vCPU, ${(item.memoryGb || 0).toFixed(1)} GB)`;
+    vmSizeEl.appendChild(option);
   }
-  vmSizeEl.value = selected;
+  if (selected && items.some((item) => item.name === selected)) {
+    vmSizeEl.value = selected;
+  }
 }
 
 function filterVmSizes() {
-  const search = vmSizeEl.value.trim().toLowerCase();
+  const search = vmSizeSearchEl.value.trim().toLowerCase();
   const filtered = vmSizes.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search)) return false;
     return true;
@@ -204,7 +206,7 @@ calculateBtn.addEventListener('click', async () => {
 
 createBtn.addEventListener('click', () => runJob('/api/create'));
 setConfigBtn.addEventListener('click', setConfig);
-vmSizeEl.addEventListener('input', filterVmSizes);
+vmSizeSearchEl.addEventListener('input', filterVmSizes);
 
 themeToggleEl.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
