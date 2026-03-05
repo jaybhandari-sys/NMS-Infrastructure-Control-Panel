@@ -30,16 +30,16 @@ const PORT = Number(process.env.PORT || 3003);
 const HOST = process.env.HOST || '127.0.0.1';
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const INFRA_ROOT = path.resolve(process.env.INFRA_ROOT || '.');
+const DEFAULT_STATIC_TFVARS = '/home/sanket/ele-infra/terraform/terraform.tfvars';
+const RESOLVED_STATIC_TFVARS = path.resolve(process.env.TERRAFORM_STATIC_TFVARS || DEFAULT_STATIC_TFVARS);
 
 const CONFIG = {
   camerasPerVm: Number(process.env.CAMERAS_PER_VM || 500),
   maxVmCount: Number(process.env.MAX_VM_COUNT || 5000),
   allowedOrigin: process.env.ALLOWED_ORIGIN || 'http://127.0.0.1:3003',
   terraformBin: process.env.TERRAFORM_BIN || 'terraform',
-  terraformDir: path.resolve(process.env.TERRAFORM_DIR || path.join(INFRA_ROOT, 'terraform')),
-  terraformStaticTfvars: path.resolve(
-    process.env.TERRAFORM_STATIC_TFVARS || path.join(INFRA_ROOT, 'terraform', 'terraform.tfvars')
-  ),
+  terraformDir: path.resolve(process.env.TERRAFORM_DIR || path.dirname(RESOLVED_STATIC_TFVARS)),
+  terraformStaticTfvars: RESOLVED_STATIC_TFVARS,
   useStaticTfvars: String(process.env.USE_STATIC_TFVARS || 'true') === 'true',
   tfProjectVar: process.env.TF_PROJECT_VAR || 'project_name',
   tfCameraCountVar: process.env.TF_CAMERA_COUNT_VAR || 'camera_count',
@@ -170,12 +170,11 @@ function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
 
 async function writeManagedTfvars(plan, resourceGroupName) {
   const targetPath = CONFIG.terraformStaticTfvars;
-  const parentDir = path.dirname(targetPath);
-  await fsp.mkdir(parentDir, { recursive: true });
-  let existingContent = '';
-  if (fs.existsSync(targetPath)) {
-    existingContent = await fsp.readFile(targetPath, 'utf-8');
+  if (!fs.existsSync(targetPath)) {
+    throw new Error(`Static tfvars file not found: ${targetPath}. Refusing to create a new file/path.`);
   }
+  let existingContent = '';
+  existingContent = await fsp.readFile(targetPath, 'utf-8');
   const content = buildManagedTfvars(plan, resourceGroupName, existingContent);
   await fsp.writeFile(targetPath, content, 'utf-8');
   return { path: targetPath, content };
