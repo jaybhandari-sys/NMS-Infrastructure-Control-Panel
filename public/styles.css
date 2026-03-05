@@ -200,13 +200,6 @@ select:focus {
   box-shadow: 0 0 0 4px var(--field-focus);
 }
 
-.vm-size-tools {
-  display: grid;
-  grid-template-columns: 1fr 130px auto;
-  gap: 10px;
-  align-items: end;
-}
-
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -346,10 +339,6 @@ select:focus {
 
 @media (max-width: 900px) {
   .grid {
-    grid-template-columns: 1fr;
-  }
-
-  .vm-size-tools {
     grid-template-columns: 1fr;
   }
 

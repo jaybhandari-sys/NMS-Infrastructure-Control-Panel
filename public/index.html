@@ -48,23 +48,10 @@
           </label>
 
           <label>
-            VM Size
-            <select id="vmSize" name="vmSize" required>
-              <option value="">Select VM size</option>
-            </select>
+            VM Size (Search)
+            <input id="vmSize" name="vmSize" list="vmSizeList" placeholder="Standard_D2s_v5" required />
+            <datalist id="vmSizeList"></datalist>
           </label>
-
-          <div class="vm-size-tools">
-            <label>
-              Search VM Size
-              <input id="vmSizeSearch" name="vmSizeSearch" placeholder="Standard_D" />
-            </label>
-            <label>
-              Min vCPUs
-              <input id="vmSizeMinCores" name="vmSizeMinCores" type="number" min="0" step="1" placeholder="4" />
-            </label>
-            <button type="button" id="refreshVmSizesBtn" class="btn btn-secondary">Refresh Sizes</button>
-          </div>
 
           <div class="actions">
             <button type="button" id="calculateBtn" class="btn btn-secondary">Calculate</button>

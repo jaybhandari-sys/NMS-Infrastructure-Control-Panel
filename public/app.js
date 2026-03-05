@@ -4,9 +4,7 @@ const resourceGroupNameEl = document.getElementById('resourceGroupName');
 const cameraCountEl = document.getElementById('cameraCount');
 const camerasPerVmEl = document.getElementById('camerasPerVm');
 const vmSizeEl = document.getElementById('vmSize');
-const vmSizeSearchEl = document.getElementById('vmSizeSearch');
-const vmSizeMinCoresEl = document.getElementById('vmSizeMinCores');
-const refreshVmSizesBtn = document.getElementById('refreshVmSizesBtn');
+const vmSizeListEl = document.getElementById('vmSizeList');
 const themeToggleEl = document.getElementById('themeToggle');
 
 const calculateBtn = document.getElementById('calculateBtn');
@@ -31,7 +29,6 @@ function setButtonsDisabled(disabled) {
   calculateBtn.disabled = disabled;
   setConfigBtn.disabled = disabled;
   createBtn.disabled = disabled;
-  refreshVmSizesBtn.disabled = disabled;
 }
 
 function getInitialTheme() {
@@ -59,24 +56,20 @@ function formPayload() {
 
 function renderVmSizeOptions(items) {
   const selected = vmSizeEl.value;
-  vmSizeEl.innerHTML = '<option value="">Select VM size</option>';
+  vmSizeListEl.innerHTML = '';
   for (const item of items) {
     const option = document.createElement('option');
     option.value = item.name;
-    option.textContent = `${item.name} (${item.vcpus || 0} vCPU, ${item.memoryGb || 0} GB)`;
-    vmSizeEl.appendChild(option);
+    option.label = `${item.name} (${item.vcpus || 0} vCPU, ${(item.memoryGb || 0).toFixed(1)} GB)`;
+    vmSizeListEl.appendChild(option);
   }
-  if (selected && items.some((item) => item.name === selected)) {
-    vmSizeEl.value = selected;
-  }
+  vmSizeEl.value = selected;
 }
 
 function filterVmSizes() {
-  const search = vmSizeSearchEl.value.trim().toLowerCase();
-  const minCores = Number(vmSizeMinCoresEl.value || 0);
+  const search = vmSizeEl.value.trim().toLowerCase();
   const filtered = vmSizes.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search)) return false;
-    if (Number.isFinite(minCores) && minCores > 0 && Number(item.vcpus || 0) < minCores) return false;
     return true;
   });
   renderVmSizeOptions(filtered);
@@ -211,9 +204,7 @@ calculateBtn.addEventListener('click', async () => {
 
 createBtn.addEventListener('click', () => runJob('/api/create'));
 setConfigBtn.addEventListener('click', setConfig);
-refreshVmSizesBtn.addEventListener('click', loadVmSizes);
-vmSizeSearchEl.addEventListener('input', filterVmSizes);
-vmSizeMinCoresEl.addEventListener('input', filterVmSizes);
+vmSizeEl.addEventListener('input', filterVmSizes);
 
 themeToggleEl.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';

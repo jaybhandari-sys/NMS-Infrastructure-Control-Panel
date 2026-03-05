@@ -200,12 +200,6 @@ function extractLocationFromTfvars(content) {
   return raw.replace(/^['"]|['"]$/g, '').trim();
 }
 
-function getCapability(sku, name) {
-  const capabilities = Array.isArray(sku.capabilities) ? sku.capabilities : [];
-  const item = capabilities.find((c) => c && c.name === name);
-  return item ? item.value : null;
-}
-
 function runCommandCapture(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -234,7 +228,7 @@ function runCommandCapture(cmd, args, options = {}) {
   });
 }
 
-async function listAzureVmSizes(locationQuery, searchQuery, minCoresQuery) {
+async function listAzureVmSizes(locationQuery, searchQuery) {
   if (!fs.existsSync(CONFIG.terraformStaticTfvars)) {
     throw new Error(`Static tfvars file not found: ${CONFIG.terraformStaticTfvars}`);
   }
@@ -250,7 +244,7 @@ async function listAzureVmSizes(locationQuery, searchQuery, minCoresQuery) {
     await runCommandCapture('az', ['account', 'show']);
   }
 
-  const args = ['vm', 'list-skus', '--location', location, '--resource-type', 'virtualMachines', '--all', '-o', 'json'];
+  const args = ['vm', 'list-sizes', '--location', location, '-o', 'json'];
   const result = await runCommandCapture('az', args);
   let raw = [];
   try {
@@ -260,24 +254,19 @@ async function listAzureVmSizes(locationQuery, searchQuery, minCoresQuery) {
   }
 
   const sizes = raw
-    .filter((item) => item && item.resourceType === 'virtualMachines' && item.name)
+    .filter((item) => item && item.name)
     .map((item) => {
-      const vcpus = Number(getCapability(item, 'vCPUs') || 0);
-      const memoryGb = Number(getCapability(item, 'MemoryGB') || 0);
+      const vcpus = Number(item.numberOfCores || 0);
+      const memoryGb = Number(item.memoryInMb || 0) / 1024;
       return {
         name: item.name,
-        size: item.size || item.name,
-        family: item.family || '',
-        tier: item.tier || '',
         vcpus,
         memoryGb
       };
     });
 
-  const minCores = Number(minCoresQuery || 0);
   const search = String(searchQuery || '').trim().toLowerCase();
   const filtered = sizes
-    .filter((s) => (Number.isFinite(minCores) && minCores > 0 ? s.vcpus >= minCores : true))
     .filter((s) => (search ? s.name.toLowerCase().includes(search) : true))
     .sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
 
@@ -483,8 +472,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/vm-sizes') {
       const location = parsed.searchParams.get('location') || '';
       const search = parsed.searchParams.get('search') || '';
-      const minCores = parsed.searchParams.get('minCores') || '';
-      const data = await listAzureVmSizes(location, search, minCores);
+      const data = await listAzureVmSizes(location, search);
       sendJson(res, 200, { ok: true, ...data });
       return;
     }
