@@ -45,7 +45,14 @@ const CONFIG = {
   tfCameraCountVar: process.env.TF_CAMERA_COUNT_VAR || 'camera_count',
   tfVmCountVar: process.env.TF_VM_COUNT_VAR || 'vm_count',
   tfVmNamesVar: process.env.TF_VM_NAMES_VAR || 'vm_names',
-  requireAzureLogin: String(process.env.REQUIRE_AZ_LOGIN || 'true') === 'true'
+  requireAzureLogin: String(process.env.REQUIRE_AZ_LOGIN || 'true') === 'true',
+  vmSizeOptions: String(
+    process.env.VM_SIZE_OPTIONS ||
+      'Standard_B2s,Standard_B4ms,Standard_D2s_v5,Standard_D4s_v5,Standard_D8s_v5,Standard_D16s_v5'
+  )
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
 };
 
 const PUBLIC_DIR = path.resolve('./public');
@@ -217,43 +224,13 @@ function runCommandCapture(cmd, args, options = {}) {
 }
 
 async function listAzureVmSizes(locationQuery, searchQuery) {
-  if (CONFIG.requireAzureLogin) {
-    await runCommandCapture('az', ['account', 'show']);
-  }
-
-  const args = ['vm', 'list-skus', '--resource-type', 'virtualMachines', '--all', '-o', 'json'];
-  const result = await runCommandCapture('az', args);
-  let raw = [];
-  try {
-    raw = JSON.parse(result.stdout);
-  } catch {
-    throw new Error('Failed to parse Azure VM size response.');
-  }
-
-  const sizeMap = new Map();
-  for (const item of raw) {
-    if (!item || !item.name || item.resourceType !== 'virtualMachines') continue;
-    const capabilities = Array.isArray(item.capabilities) ? item.capabilities : [];
-    const vcpuCap = capabilities.find((c) => c && c.name === 'vCPUs');
-    const memCap = capabilities.find((c) => c && c.name === 'MemoryGB');
-    const vcpus = Number(vcpuCap?.value || 0);
-    const memoryGb = Number(memCap?.value || 0);
-    if (!sizeMap.has(item.name)) {
-      sizeMap.set(item.name, {
-        name: item.name,
-        vcpus,
-        memoryGb
-      });
-    }
-  }
-  const sizes = Array.from(sizeMap.values());
-
+  const sizes = CONFIG.vmSizeOptions.map((name) => ({ name, vcpus: 0, memoryGb: 0 }));
   const search = String(searchQuery || '').trim().toLowerCase();
   const filtered = sizes
     .filter((s) => (search ? s.name.toLowerCase().includes(search) : true))
     .sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
 
-  return { location: String(locationQuery || 'all').trim() || 'all', sizes: filtered };
+  return { location: String(locationQuery || 'configured').trim() || 'configured', sizes: filtered };
 }
 
 function createJob(type, plan) {
