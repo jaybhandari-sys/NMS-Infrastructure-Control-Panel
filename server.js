@@ -160,7 +160,7 @@ function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
     { key: 'resource_group_name', value: resolvedResourceGroup },
     { key: 'project_name', value: toHclString(plan.projectName) },
     { key: 'vm_count', value: String(plan.vmCount) },
-    { key: 'vm_name', value: toHclString(plan.vmNames[0] || plan.projectName) }
+    { key: 'vm_name', value: toHclString(plan.projectName) }
   ].filter((item) => item.value !== null);
 
   for (const update of requiredUpdates) {
