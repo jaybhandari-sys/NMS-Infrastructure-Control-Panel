@@ -20,7 +20,7 @@ If your infra repo is at a different path, edit `.env` values first.
 ## 2) Existing Terraform Integration
 
 Flow:
-- `Set Config` writes: `TERRAFORM_WEB_TFVARS` (default: `terraform/terraform.tfvars`)
+- `Set Config` overwrites: `TERRAFORM_STATIC_TFVARS` (default: `terraform/terraform.tfvars`)
 - `Create VMs` executes Terraform apply using tfvars files.
 
 ```bash
@@ -28,11 +28,20 @@ terraform -chdir=<TERRAFORM_DIR> init -input=false
 terraform -chdir=<TERRAFORM_DIR> apply -auto-approve -input=false -var-file=<terraform.tfvars>
 ```
 
-Generated/updated variables:
-- `subscription_id` (preserved from existing file)
-- `resource_group_name` (preserved from existing file)
-- `location` (preserved from existing file)
-- `vm_name` (list(string), updated by UI)
+Updated variables in `terraform.tfvars`:
+- `resource_group_name` (from UI input)
+- `project`
+- `project_name`
+- `vm_count`
+- `vm_name` (list(string), e.g. `["west-bengal1","west-bengal2"]`)
+
+Preserved values:
+- `subscription_id`
+- `location`
+- `vm_size`
+- `admin_username`
+- `admin_password`
+- `tags`, `environment`, `owner` (and any other existing keys)
 
 You can remap variable names in `.env`:
 - `TF_PROJECT_VAR`
@@ -68,4 +77,3 @@ For your shared structure:
 - `INFRA_ROOT=/home/sanket/ele-infra`
 - `TERRAFORM_DIR=/home/sanket/ele-infra/terraform`
 - `TERRAFORM_STATIC_TFVARS=/home/sanket/ele-infra/terraform/terraform.tfvars`
-- `TERRAFORM_WEB_TFVARS=/home/sanket/ele-infra/terraform/terraform.tfvars`

@@ -1,5 +1,6 @@
 const planForm = document.getElementById('planForm');
 const projectNameEl = document.getElementById('projectName');
+const resourceGroupNameEl = document.getElementById('resourceGroupName');
 const cameraCountEl = document.getElementById('cameraCount');
 const camerasPerVmEl = document.getElementById('camerasPerVm');
 const themeToggleEl = document.getElementById('themeToggle');
@@ -43,6 +44,7 @@ function applyTheme(theme) {
 function formPayload() {
   return {
     projectName: projectNameEl.value.trim(),
+    resourceGroupName: resourceGroupNameEl.value.trim(),
     cameraCount: Number(cameraCountEl.value),
     camerasPerVm: Number(camerasPerVmEl.value)
   };
@@ -93,7 +95,8 @@ async function setConfig() {
   setButtonsDisabled(true);
   try {
     setStatus('Running', 'status-running');
-    const payload = currentPlan || (await calculatePlan());
+    const payload = formPayload();
+    await calculatePlan();
     const data = await callApi('/api/set-config', 'POST', payload);
     logsEl.textContent = `Config saved to: ${data.tfvarsPath}\nProject: ${data.plan.projectName}\nVM Count: ${data.plan.vmCount}`;
     setStatus('Success', 'status-success');

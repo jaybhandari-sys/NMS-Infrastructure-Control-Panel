@@ -40,9 +40,6 @@ const CONFIG = {
   terraformStaticTfvars: path.resolve(
     process.env.TERRAFORM_STATIC_TFVARS || path.join(INFRA_ROOT, 'terraform', 'terraform.tfvars')
   ),
-  terraformWebTfvars: path.resolve(
-    process.env.TERRAFORM_WEB_TFVARS || path.join(INFRA_ROOT, 'terraform', 'terraform.tfvars')
-  ),
   useStaticTfvars: String(process.env.USE_STATIC_TFVARS || 'true') === 'true',
   tfProjectVar: process.env.TF_PROJECT_VAR || 'project_name',
   tfCameraCountVar: process.env.TF_CAMERA_COUNT_VAR || 'camera_count',
@@ -132,31 +129,56 @@ function findTfvarsValue(content, key) {
   return match ? match[1].trim() : null;
 }
 
-function buildWebTfvars(plan, existingContent = '') {
-  const subscriptionId = findTfvarsValue(existingContent, 'subscription_id') || toHclString('');
-  const resourceGroupName = findTfvarsValue(existingContent, 'resource_group_name') || toHclString('');
-  const location = findTfvarsValue(existingContent, 'location') || toHclString('');
-
-  return [
-    `# Managed by VM Creator UI at ${new Date().toISOString()}`,
-    `subscription_id = ${subscriptionId}`,
-    `resource_group_name = ${resourceGroupName}`,
-    `location = ${location}`,
-    `vm_name = ${toHclList(plan.vmNames)}`,
-    ''
-  ].join('\n');
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function writeWebTfvars(plan) {
-  const parentDir = path.dirname(CONFIG.terraformWebTfvars);
+function upsertTfvarsKey(content, key, value) {
+  const lines = content.split(/\r?\n/);
+  const keyPattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (keyPattern.test(line)) {
+      lines[i] = `${key} = ${value}`;
+      return lines.join('\n');
+    }
+  }
+  while (lines.length && lines[lines.length - 1].trim() === '') {
+    lines.pop();
+  }
+  lines.push(`${key} = ${value}`);
+  return lines.join('\n') + '\n';
+}
+
+function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
+  let content = existingContent;
+  if (!content.trim()) {
+    content = '# Managed by VM Creator UI\n';
+  }
+
+  const resolvedResourceGroup = resourceGroupName
+    ? toHclString(resourceGroupName)
+    : findTfvarsValue(content, 'resource_group_name') || toHclString('');
+
+  content = upsertTfvarsKey(content, 'resource_group_name', resolvedResourceGroup);
+  content = upsertTfvarsKey(content, 'project', toHclString(plan.projectName));
+  content = upsertTfvarsKey(content, 'project_name', toHclString(plan.projectName));
+  content = upsertTfvarsKey(content, 'vm_count', String(plan.vmCount));
+  content = upsertTfvarsKey(content, 'vm_name', toHclList(plan.vmNames));
+  return content;
+}
+
+async function writeManagedTfvars(plan, resourceGroupName) {
+  const targetPath = CONFIG.terraformStaticTfvars;
+  const parentDir = path.dirname(targetPath);
   await fsp.mkdir(parentDir, { recursive: true });
   let existingContent = '';
-  if (fs.existsSync(CONFIG.terraformWebTfvars)) {
-    existingContent = await fsp.readFile(CONFIG.terraformWebTfvars, 'utf-8');
+  if (fs.existsSync(targetPath)) {
+    existingContent = await fsp.readFile(targetPath, 'utf-8');
   }
-  const content = buildWebTfvars(plan, existingContent);
-  await fsp.writeFile(CONFIG.terraformWebTfvars, content, 'utf-8');
-  return content;
+  const content = buildManagedTfvars(plan, resourceGroupName, existingContent);
+  await fsp.writeFile(targetPath, content, 'utf-8');
+  return { path: targetPath, content };
 }
 
 function createJob(type, plan) {
@@ -237,8 +259,8 @@ async function executeTerraform(job, plan) {
     throw new Error(`Terraform directory not found: ${CONFIG.terraformDir}`);
   }
 
-  if (!fs.existsSync(CONFIG.terraformWebTfvars)) {
-    throw new Error(`Set Config file not found: ${CONFIG.terraformWebTfvars}. Click 'Set Config' first.`);
+  if (!fs.existsSync(CONFIG.terraformStaticTfvars)) {
+    throw new Error(`Set Config file not found: ${CONFIG.terraformStaticTfvars}. Click 'Set Config' first.`);
   }
 
   if (CONFIG.requireAzureLogin) {
@@ -252,20 +274,8 @@ async function executeTerraform(job, plan) {
     '-auto-approve',
     '-input=false'
   ];
-  const varFiles = [];
-  if (CONFIG.useStaticTfvars && fs.existsSync(CONFIG.terraformStaticTfvars)) {
-    varFiles.push({ type: 'static', path: CONFIG.terraformStaticTfvars });
-  }
-  if (fs.existsSync(CONFIG.terraformWebTfvars)) {
-    varFiles.push({ type: 'web', path: CONFIG.terraformWebTfvars });
-  }
-  const seen = new Set();
-  for (const item of varFiles) {
-    if (seen.has(item.path)) continue;
-    seen.add(item.path);
-    applyArgs.push(`-var-file=${item.path}`);
-    appendJobLog(job, `Using ${item.type} tfvars: ${item.path}`);
-  }
+  applyArgs.push(`-var-file=${CONFIG.terraformStaticTfvars}`);
+  appendJobLog(job, `Using static tfvars: ${CONFIG.terraformStaticTfvars}`);
   await runCommand(job, CONFIG.terraformBin, applyArgs);
 }
 
@@ -320,8 +330,8 @@ const server = http.createServer(async (req, res) => {
           camerasPerVm: CONFIG.camerasPerVm,
           maxVmCount: CONFIG.maxVmCount,
           terraformConfigured: fs.existsSync(CONFIG.terraformDir),
+          managedTfvarsPath: CONFIG.terraformStaticTfvars,
           staticTfvarsPresent: fs.existsSync(CONFIG.terraformStaticTfvars),
-          webTfvarsPresent: fs.existsSync(CONFIG.terraformWebTfvars),
           useStaticTfvars: CONFIG.useStaticTfvars,
           tfProjectVar: CONFIG.tfProjectVar,
           tfCameraCountVar: CONFIG.tfCameraCountVar,
@@ -352,11 +362,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/set-config') {
       const body = await parseBody(req);
       const plan = computePlan(body.projectName, body.cameraCount, body.camerasPerVm);
-      await writeWebTfvars(plan);
+      const resourceGroupName = String(body.resourceGroupName || '').trim();
+      const saved = await writeManagedTfvars(plan, resourceGroupName);
       sendJson(res, 200, {
         ok: true,
-        message: 'Terraform web config updated.',
-        tfvarsPath: CONFIG.terraformWebTfvars,
+        message: 'Terraform config updated.',
+        tfvarsPath: saved.path,
         plan
       });
       return;
