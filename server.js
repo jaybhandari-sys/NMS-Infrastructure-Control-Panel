@@ -123,48 +123,45 @@ function toHclList(values) {
   return `[${values.map((v) => toHclString(v)).join(', ')}]`;
 }
 
-function findTfvarsValue(content, key) {
-  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm');
-  const match = content.match(pattern);
-  return match ? match[1].trim() : null;
-}
-
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function upsertTfvarsKey(content, key, value) {
+function replaceTfvarsKey(content, key, value) {
   const lines = content.split(/\r?\n/);
   const keyPattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (keyPattern.test(line)) {
       lines[i] = `${key} = ${value}`;
-      return lines.join('\n');
+      return { content: lines.join('\n'), replaced: true };
     }
   }
-  while (lines.length && lines[lines.length - 1].trim() === '') {
-    lines.pop();
-  }
-  lines.push(`${key} = ${value}`);
-  return lines.join('\n') + '\n';
+  return { content, replaced: false };
 }
 
 function buildManagedTfvars(plan, resourceGroupName, existingContent = '') {
-  let content = existingContent;
+  let content = existingContent || '';
   if (!content.trim()) {
-    content = '# Managed by VM Creator UI\n';
+    throw new Error('Static tfvars file is empty. Refusing to add/remove variables automatically.');
   }
 
-  const resolvedResourceGroup = resourceGroupName
-    ? toHclString(resourceGroupName)
-    : findTfvarsValue(content, 'resource_group_name') || toHclString('');
+  const resolvedResourceGroup = resourceGroupName ? toHclString(resourceGroupName) : null;
+  const requiredUpdates = [
+    { key: 'resource_group_name', value: resolvedResourceGroup },
+    { key: 'project_name', value: toHclString(plan.projectName) },
+    { key: 'vm_count', value: String(plan.vmCount) },
+    { key: 'vm_name', value: toHclList(plan.vmNames) }
+  ].filter((item) => item.value !== null);
 
-  content = upsertTfvarsKey(content, 'resource_group_name', resolvedResourceGroup);
-  content = upsertTfvarsKey(content, 'project', toHclString(plan.projectName));
-  content = upsertTfvarsKey(content, 'project_name', toHclString(plan.projectName));
-  content = upsertTfvarsKey(content, 'vm_count', String(plan.vmCount));
-  content = upsertTfvarsKey(content, 'vm_name', toHclList(plan.vmNames));
+  for (const update of requiredUpdates) {
+    const replaced = replaceTfvarsKey(content, update.key, update.value);
+    if (!replaced.replaced) {
+      throw new Error(`Required key '${update.key}' not found in static tfvars. Refusing to add/remove keys.`);
+    }
+    content = replaced.content;
+  }
+
   return content;
 }
 
