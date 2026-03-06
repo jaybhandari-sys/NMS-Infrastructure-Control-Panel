@@ -15,10 +15,32 @@ const summaryEl = document.getElementById('summary');
 const vmListEl = document.getElementById('vmList');
 const logsEl = document.getElementById('logs');
 const jobStatusEl = document.getElementById('jobStatus');
+const STATIC_VM_SIZE_NAMES = [
+  'Standard_D2s_v3',
+  'Standard_D4s_v3',
+  'Standard_D8s_v3',
+  'Standard_D16s_v3',
+  'Standard_D32s_v3',
+  'Standard_D48s_v3',
+  'Standard_D64s_v3'
+];
 
 let currentPlan = null;
 let pollTimer = null;
-let vmSizes = [];
+let vmSizes = STATIC_VM_SIZE_NAMES.map((name) => ({ name, vcpus: 0, memoryGb: 0 }));
+
+function mergeVmSizes(primary, fallback) {
+  const map = new Map();
+  for (const item of [...fallback, ...primary]) {
+    if (!item || !item.name) continue;
+    map.set(item.name, {
+      name: item.name,
+      vcpus: Number(item.vcpus || 0),
+      memoryGb: Number(item.memoryGb || 0)
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.vcpus - b.vcpus || a.name.localeCompare(b.name));
+}
 
 function setStatus(label, cls) {
   jobStatusEl.textContent = label;
@@ -45,10 +67,12 @@ function applyTheme(theme) {
 }
 
 function formPayload() {
+  const selectedVmSize = vmSizeEl.value.trim();
   return {
     projectName: projectNameEl.value.trim(),
     resourceGroupName: resourceGroupNameEl.value.trim(),
-    vmSize: vmSizeEl.value.trim(),
+    vmSize: selectedVmSize,
+    vm_size: selectedVmSize,
     cameraCount: Number(cameraCountEl.value),
     camerasPerVm: Number(camerasPerVmEl.value)
   };
@@ -56,14 +80,20 @@ function formPayload() {
 
 function renderVmSizeOptions(items) {
   const selected = vmSizeEl.value;
+  const selectedItem = selected ? vmSizes.find((item) => item.name === selected) : null;
+  const displayItems =
+    selectedItem && !items.some((item) => item.name === selectedItem.name)
+      ? [selectedItem, ...items]
+      : items;
+
   vmSizeEl.innerHTML = '<option value="">Select VM size</option>';
-  for (const item of items) {
+  for (const item of displayItems) {
     const option = document.createElement('option');
     option.value = item.name;
-    option.textContent = `${item.name} (${item.vcpus || 0} vCPU, ${(item.memoryGb || 0).toFixed(1)} GB)`;
+    option.textContent = item.name;
     vmSizeEl.appendChild(option);
   }
-  if (selected && items.some((item) => item.name === selected)) {
+  if (selected && displayItems.some((item) => item.name === selected)) {
     vmSizeEl.value = selected;
   }
 }
@@ -82,13 +112,14 @@ async function loadVmSizes() {
   try {
     setStatus('Running', 'status-running');
     const data = await callApi('/api/vm-sizes', 'GET');
-    vmSizes = Array.isArray(data.sizes) ? data.sizes : [];
+    vmSizes = mergeVmSizes(Array.isArray(data.sizes) ? data.sizes : [], vmSizes);
     filterVmSizes();
     logsEl.textContent = `VM sizes loaded (${data.source || 'azure'})\nLocation scope: ${data.location}\nAvailable sizes: ${vmSizes.length}`;
     setStatus('Idle', 'status-idle');
   } catch (err) {
-    logsEl.textContent = `Failed to load VM sizes: ${err.message}`;
-    setStatus('Failed', 'status-failed');
+    filterVmSizes();
+    logsEl.textContent = `Failed to load Azure VM sizes: ${err.message}\nUsing static VM sizes (${vmSizes.length}).`;
+    setStatus('Idle', 'status-idle');
   } finally {
     setButtonsDisabled(false);
   }
@@ -222,6 +253,7 @@ planForm.addEventListener('submit', (e) => {
 
 (async function init() {
   applyTheme(getInitialTheme());
+  filterVmSizes();
   try {
     const health = await callApi('/api/health', 'GET');
     camerasPerVmEl.value = String(health.config.camerasPerVm || 500);

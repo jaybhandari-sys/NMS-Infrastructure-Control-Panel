@@ -450,7 +450,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/set-config') {
       const body = await parseBody(req);
       const plan = computePlan(body.projectName, body.cameraCount, body.camerasPerVm);
-      plan.vmSize = String(body.vmSize || '').trim();
+      plan.vmSize = String(body.vm_size || body.vmSize || '').trim();
       if (!plan.vmSize) {
         throw new Error('VM size is required.');
       }
